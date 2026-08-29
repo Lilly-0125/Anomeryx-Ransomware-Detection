@@ -1,0 +1,28 @@
+# Python virtual environment
+venv/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# PyInstaller generated files
+build/
+dist/
+
+# VS Code local settings
+.vscode/
+
+# Logs
+*.log
+
+# Generated simulator files
+test_files/simulated/*
+
+# Keep the simulated directory
+!test_files/simulated/.gitkeep
+
+# Large raw dataset files
+data/368.json
+data/389.json
