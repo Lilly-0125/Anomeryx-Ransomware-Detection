@@ -26,3 +26,5 @@ test_files/simulated/*
 # Large raw dataset files
 data/368.json
 data/389.json
+
+database/*.db

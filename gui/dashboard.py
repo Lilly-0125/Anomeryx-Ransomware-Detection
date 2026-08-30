@@ -23,6 +23,7 @@ from core.model    import RansomwareDetector
 from core.scorer   import RiskScorer, RiskLevel
 from core.pso      import PSOFeatureSelector
 from core.features import FeatureExtractor
+from core.database import AlertDatabase
 
 
 # ── Worker signals ────────────────────────────────────────────
@@ -123,8 +124,10 @@ class MainDashboard(QMainWindow):
         self.dev_mode   = dev_mode
         self.detector   = RansomwareDetector()
         self.scorer     = RiskScorer()
+        self.database = AlertDatabase()
         self.threadpool = QThreadPool()
         self._setup_ui()
+        self._load_alerts_from_database()
         self._try_load_model()
 
     def _try_load_model(self):
@@ -544,32 +547,170 @@ class MainDashboard(QMainWindow):
         return w
 
     def _add_alert(self, result, extra=""):
-        ts    = time.strftime("%Y-%m-%d %H:%M:%S")
-        row   = self.alert_table.rowCount()
+
+      ts = time.strftime(
+        "%Y-%m-%d %H:%M:%S"
+      )
+
+      details = (
+        ", ".join(result.triggered_rules)
+        if result.triggered_rules
+        else extra
+      )
+
+       # -----------------------------------
+       # Save alert into SQLite database
+       # -----------------------------------
+      self.database.add_alert(
+        timestamp=ts,
+        level=result.level.value,
+        score=float(result.score),
+        confidence=float(result.confidence * 100),
+        details=details
+      )
+
+       # -----------------------------------
+       # Display alert in GUI
+       # -----------------------------------
+      row = self.alert_table.rowCount()
+      self.alert_table.insertRow(row)
+
+      color = self.scorer.LEVEL_COLORS[
+        result.level
+      ]
+
+      data = [
+        ts,
+        result.level.value,
+        f"{result.score:.1f}",
+        f"{result.confidence*100:.1f}%",
+        details
+      ]
+
+      for col, val in enumerate(data):
+
+        item = QTableWidgetItem(
+            str(val)
+        )
+
+        if col == 1:
+
+            item.setForeground(
+                QColor(color)
+            )
+
+            item.setFont(
+                QFont(
+                    "Arial",
+                    10,
+                    QFont.Bold
+                )
+            )
+
+        self.alert_table.setItem(
+            row,
+            col,
+            item
+        )
+
+      self.alert_count_label.setText(
+        f"Total alerts: "
+        f"{self.alert_table.rowCount()}"
+     )
+
+      if result.level == RiskLevel.CRITICAL:
+        self.tabs.setCurrentIndex(2)
+
+
+    def _load_alerts_from_database(self):
+
+      alerts = self.database.get_all_alerts()
+
+      color_map = {
+        "SAFE": "#2ecc71",
+        "LOW": "#f1c40f",
+        "MEDIUM": "#e67e22",
+        "HIGH": "#e74c3c",
+        "CRITICAL": "#8e44ad",
+      }
+
+      for alert in alerts:
+
+        alert_id = alert[0]
+        timestamp = alert[1]
+        level = alert[2]
+        score = alert[3]
+        confidence = alert[4]
+        details = alert[5]
+
+        row = self.alert_table.rowCount()
         self.alert_table.insertRow(row)
-        color = self.scorer.LEVEL_COLORS[result.level]
-        data  = [
-            ts,
-            result.level.value,
-            f"{result.score:.1f}",
-            f"{result.confidence*100:.1f}%",
-            ", ".join(result.triggered_rules)
-            if result.triggered_rules else extra
+
+        data = [
+            timestamp,
+            level,
+            f"{score:.1f}",
+            f"{confidence:.1f}%",
+            details
         ]
-        for col, val in enumerate(data):
-            item = QTableWidgetItem(val)
+
+        for col, value in enumerate(data):
+
+            item = QTableWidgetItem(
+                str(value)
+            )
+
             if col == 1:
-                item.setForeground(QColor(color))
-                item.setFont(QFont("Arial", 10, QFont.Bold))
-            self.alert_table.setItem(row, col, item)
-        self.alert_count_label.setText(
-            f"Total alerts: {self.alert_table.rowCount()}")
-        if result.level == RiskLevel.CRITICAL:
-            self.tabs.setCurrentIndex(2)
+
+                item.setForeground(
+                    QColor(
+                        color_map.get(
+                            level,
+                            "#ffffff"
+                        )
+                    )
+                )
+
+                item.setFont(
+                    QFont(
+                        "Arial",
+                        10,
+                        QFont.Bold
+                    )
+                )
+
+            self.alert_table.setItem(
+                row,
+                col,
+                item
+            )
+
+      self.alert_count_label.setText(
+        f"Total alerts: "
+        f"{self.alert_table.rowCount()}"
+      )  
 
     def _clear_alerts(self):
+       reply = QMessageBox.question(
+        self,
+        "Clear Alert History",
+        "Are you sure you want to permanently "
+        "delete all alert records?",
+        QMessageBox.Yes | QMessageBox.No,
+        QMessageBox.No
+     )
+
+       if reply == QMessageBox.Yes:
+
+        # Clear SQLite database
+        self.database.clear_alerts()
+
+        # Clear GUI table
         self.alert_table.setRowCount(0)
-        self.alert_count_label.setText("Total alerts: 0")
+
+        self.alert_count_label.setText(
+            "Total alerts: 0"
+        )
 
     # ── Tab 4: Train Model (Dev only) ─────────────────────────
     def _build_train_tab(self):
